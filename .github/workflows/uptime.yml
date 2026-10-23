@@ -1,0 +1,41 @@
+name: offsite-uptime
+# Off-site check of the public sites served from the house (Fable 2026-10-22, Doll server-admin redesign).
+# The in-house monitors share the house's power and internet, so a house-wide outage silences them.
+# This runs on GitHub's servers. If most sites are down on two checks two minutes apart, the run fails and
+# GitHub emails the repo owner. No secrets are used.
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check public sites twice
+        run: |
+          set -u
+          hosts="survivor.isopen.us playoffs.isopen.us social.fusehq.cloud golf.alyp.us sms.fusehq.cloud admin.fusehq.cloud hq.fusehq.cloud brain.fusehq.cloud volleyball.isopen.us provision.fusehq.cloud"
+          total=$(echo $hosts | wc -w)
+          check() {
+            down=""
+            for h in $hosts; do
+              code=$(curl -s -o /dev/null -m 15 -w '%{http_code}' "https://$h/" || true)
+              case "$code" in 000|502|503|504|52[0-9]|530) down="$down $h($code)" ;; esac
+            done
+            echo "$down"
+          }
+          d1=$(check); n1=$(echo $d1 | wc -w)
+          echo "first pass: $n1/$total down:$d1"
+          if [ "$n1" -gt $((total / 2)) ]; then
+            sleep 120
+            d2=$(check); n2=$(echo $d2 | wc -w)
+            echo "second pass: $n2/$total down:$d2"
+            if [ "$n2" -gt $((total / 2)) ]; then
+              echo "::error::Most of the house's public sites are unreachable from the internet ($n2/$total):$d2. Likely a house internet or power outage, or Zeus is down."
+              exit 1
+            fi
+          fi
+          echo "ok"
